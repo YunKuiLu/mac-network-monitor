@@ -1,6 +1,9 @@
 # Configuration file with sensitive data
 config.sh
 
+# User-specific launchd plist (contains home directory paths)
+com.network.monitor.plist
+
 # AI assistant guidance (optional, user-specific)
 CLAUDE.md
 
