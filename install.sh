@@ -3,8 +3,14 @@
 
 set -euo pipefail
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get script directory (follow symlinks to find real location)
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$SCRIPT_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.sh"
 PLIST_FILE="$SCRIPT_DIR/com.network.monitor.plist"
 STATUS_SCRIPT="$SCRIPT_DIR/status.sh"
@@ -12,29 +18,39 @@ STATUS_SCRIPT="$SCRIPT_DIR/status.sh"
 # Source config to get paths
 source "$CONFIG_FILE"
 
+# Initialize i18n
+if [[ -f "$SCRIPT_DIR/i18n/i18n.sh" ]]; then
+    source "$SCRIPT_DIR/i18n/i18n.sh"
+    i18n_init "$SCRIPT_DIR" "${LANGUAGE:-}"
+fi
+
 echo "======================================"
-echo "Network Monitor Installation"
+if type t &>/dev/null; then
+    echo "$(t "install.title")"
+else
+    echo "Network Monitor Installation"
+fi
 echo "======================================"
 echo ""
 
 # Check if running as root
 if [[ $EUID -eq 0 ]]; then
-    echo "ERROR: This script should not be run as root. Run as your regular user."
+    echo "$(t "install.not_root")"
     exit 1
 fi
 
 # Make scripts executable
-echo "Making scripts executable..."
+echo "$(t "msg.making_executable")"
 chmod +x "$SCRIPT_DIR/network-monitor.sh"
 chmod +x "$SCRIPT_DIR/status.sh"
 chmod +x "$SCRIPT_DIR/uninstall.sh"
 
 # Create log directory
-echo "Creating log directory at: $LOG_DIR"
+echo "$(t "msg.creating_log_dir" "$LOG_DIR")"
 mkdir -p "$LOG_DIR"
 
 # Set config file permissions (restrictive for password security)
-echo "Setting config file permissions..."
+echo "$(t "msg.setting_permissions")"
 chmod 600 "$CONFIG_FILE"
 
 # Create LaunchAgents directory if it doesn't exist
@@ -43,42 +59,39 @@ mkdir -p "$LAUNCH_AGENTS_DIR"
 
 # Copy plist file to LaunchAgents
 PLIST_DEST="$LAUNCH_AGENTS_DIR/com.network.monitor.plist"
-echo "Installing launchd agent to: $PLIST_DEST"
+echo "$(t "install.installing_plist" "$PLIST_DEST")"
 
 # Update plist with actual user path if needed
 sed "s|/Users/luyunkui|$HOME|g" "$PLIST_FILE" > "$PLIST_DEST"
 
 # Load the launchd agent
-echo "Loading launchd agent..."
+echo "$(t "install.loading_launchd")"
 launchctl load "$PLIST_DEST" 2>/dev/null || {
-    echo "WARNING: Failed to load launchd agent. You may need to run:"
-    echo "  launchctl load '$PLIST_DEST'"
+    t "install.warning.load_failed" "$PLIST_DEST"
 }
 
 # Create symlink for CLI tool
 BIN_LINK="/usr/local/bin/nm-status"
 if [[ -w /usr/local/bin ]] || mkdir -p /usr/local/bin 2>/dev/null; then
     if [[ -L "$BIN_LINK" ]]; then
-        echo "Removing existing symlink at $BIN_LINK"
+        echo "$(t "install.removing_existing_symlink" "$BIN_LINK")"
         rm "$BIN_LINK"
     fi
-    echo "Creating CLI symlink: $BIN_LINK -> $STATUS_SCRIPT"
+    echo "$(t "install.creating_symlink" "$BIN_LINK" "$STATUS_SCRIPT")"
     ln -s "$STATUS_SCRIPT" "$BIN_LINK"
     chmod +x "$BIN_LINK"
 else
-    echo "WARNING: Could not create symlink at /usr/local/bin/nm-status"
-    echo "You may need to run with sudo or create it manually:"
-    echo "  sudo ln -s '$STATUS_SCRIPT' /usr/local/bin/nm-status"
+    t "install.warning.symlink_failed" "$BIN_LINK" "$STATUS_SCRIPT" "$BIN_LINK"
 fi
 
 echo ""
 echo "======================================"
-echo "Installation Complete!"
+echo "$(t "install.complete")"
 echo "======================================"
 echo ""
-echo "Network Monitor is now running and will check every 30 minutes."
+echo "$(t "install.info.running")"
 echo ""
-echo "Available Commands:"
+echo "$(t "install.info.commands"):"
 echo "  nm-status          - Show recent logs"
 echo "  nm-status show     - Show recent logs"
 echo "  nm-status status   - Show launchd task status"

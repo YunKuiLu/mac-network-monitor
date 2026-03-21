@@ -2,6 +2,11 @@
 # Network Monitor Configuration File
 # Edit these parameters according to your needs
 
+# Language Configuration (i18n)
+# Options: "zh" (简体中文), "en" (English)
+# Leave empty to auto-detect from system language (recommended)
+LANGUAGE=""
+
 # WiFi Network Configuration
 WIFI_SSID="Your_WiFi_SSID"
 WIFI_PASSWORD=""  # Leave empty if macOS already has the password saved

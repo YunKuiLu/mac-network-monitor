@@ -17,8 +17,16 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 if [[ -f "$SCRIPT_DIR/config.sh" ]]; then
     source "$SCRIPT_DIR/config.sh"
 else
-    echo "错误: 配置文件未找到: $SCRIPT_DIR/config.sh" >&2
+    echo "Error: Configuration file not found: $SCRIPT_DIR/config.sh" >&2
     exit 1
+fi
+
+# Initialize i18n
+if [[ -f "$SCRIPT_DIR/i18n/i18n.sh" ]]; then
+    source "$SCRIPT_DIR/i18n/i18n.sh"
+    i18n_init "$SCRIPT_DIR" "${LANGUAGE:-}"
+else
+    echo "Warning: i18n loader not found, using default messages" >&2
 fi
 
 # Ensure log directory exists
@@ -27,11 +35,36 @@ mkdir -p "$LOG_DIR"
 # Logging function
 log() {
     local level="$1"
-    shift
-    local message="$*"
+    local key="$2"
+    shift 2
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+
+    # Translate the message
+    local message
+    if [[ $# -eq 0 ]]; then
+        if type t &>/dev/null; then
+            message="$(t "$key")"
+        else
+            message="$key"
+        fi
+    else
+        if type t &>/dev/null; then
+            message="$(t "$key" "$@")"
+        else
+            message="$key"
+        fi
+    fi
+
+    # Translate log level
+    local level_text
+    if type t &>/dev/null; then
+        level_text="$(t "log.$level")"
+    else
+        level_text="$level"
+    fi
+
+    echo "[$timestamp] [$level_text] $message" | tee -a "$LOG_FILE"
 }
 
 # Get WiFi interface name
@@ -70,13 +103,21 @@ get_current_wifi() {
 
         # If SSID is hidden or unavailable
         if [[ -z "$wifi_name" || "$wifi_name" == *"<redacted>"* || "$wifi_name" == *"You are not"* ]]; then
-            echo "已连接 (SSID 已隐藏)"
+            if type t &>/dev/null; then
+                echo "$(t "wifi.ssid_hidden")"
+            else
+                echo "已连接 (SSID 已隐藏)"
+            fi
         else
             echo "$wifi_name"
         fi
     else
         # No IP = not connected
-        echo "未连接"
+        if type t &>/dev/null; then
+            echo "$(t "wifi.not_connected")"
+        else
+            echo "未连接"
+        fi
     fi
 }
 
@@ -93,7 +134,7 @@ check_network() {
 # Turn WiFi off
 wifi_off() {
     local wifi_interface="$1"
-    log "INFO" "正在关闭 WiFi..."
+    log "INFO" "wifi.turning_off"
     networksetup -setairportpower "$wifi_interface" off
     sleep "$WIFI_OFF_DELAY"
 }
@@ -101,7 +142,7 @@ wifi_off() {
 # Turn WiFi on
 wifi_on() {
     local wifi_interface="$1"
-    log "INFO" "正在打开 WiFi..."
+    log "INFO" "wifi.turning_on"
     networksetup -setairportpower "$wifi_interface" on
     sleep "$WIFI_ON_DELAY"
 }
@@ -112,7 +153,7 @@ connect_wifi() {
     local ssid="$2"
     local password="${3:-}"
 
-    log "INFO" "尝试连接 WiFi: $ssid"
+    log "INFO" "wifi.connecting" "$ssid"
 
     # Suppress error output - macOS may report errors even when connection succeeds
     # We'll verify connection status afterwards instead
@@ -128,7 +169,7 @@ reconnect_wifi() {
     local wifi_interface="$1"
     local current_wifi="$2"
 
-    log "WARN" "网络已断开。当前 WiFi: ${current_wifi:-无}。开始重新连接..."
+    log "WARN" "network.down" "${current_wifi:-$(t "wifi.not_connected")}"
 
     local retry_count=0
     local success=false
@@ -140,15 +181,15 @@ reconnect_wifi() {
         local retry_delay="${RETRY_DELAYS[$((retry_count - 1))]:-0}"
 
         if [[ $retry_delay -gt 0 ]]; then
-            log "INFO" "重试 #$retry_count: 等待 ${retry_delay}秒 后尝试..."
+            log "INFO" "network.retry_waiting" "$retry_count" "$retry_delay"
             sleep "$retry_delay"
         else
-            log "INFO" "重试 #$retry_count: 立即尝试..."
+            log "INFO" "network.retry_immediate" "$retry_count"
         fi
 
         # 先检测网络是否已恢复（避免在等待期间网络已恢复时执行不必要的重连操作）
         if check_network; then
-            log "INFO" "网络已自行恢复，无需重连。退出重试流程。"
+            log "INFO" "network.recovered"
             success=true
             break
         fi
@@ -169,19 +210,19 @@ reconnect_wifi() {
         if wifi_ip=$(check_wifi_connected "$wifi_interface"); then
             # Verify network connectivity
             if check_network; then
-                log "INFO" "成功连接到 WiFi (IP: $wifi_ip)，网络正常！"
+                log "INFO" "network.retry_success" "$wifi_ip"
                 success=true
                 break
             else
-                log "WARN" "WiFi 已连接 (IP: $wifi_ip) 但无法访问网络。将重试..."
+                log "WARN" "network.retry_ip_no_network" "$wifi_ip"
             fi
         else
-            log "WARN" "WiFi 连接失败（未获取到 IP 地址）。将重试..."
+            log "WARN" "network.retry_wifi_no_ip"
         fi
     done
 
     if [[ "$success" == false ]]; then
-        log "ERROR" "重连失败，已尝试 $MAX_RETRY_COUNT 次。将在下次定时检测时再试。"
+        log "ERROR" "network.retry_failed" "$MAX_RETRY_COUNT"
         return 1
     fi
 
@@ -195,39 +236,39 @@ main() {
     wifi_interface=$(get_wifi_interface)
 
     if [[ -z "$wifi_interface" ]]; then
-        log "ERROR" "无法检测到 WiFi 接口。终止执行。"
+        log "ERROR" "status.no_wifi_interface"
         exit 1
     fi
 
-    log "INFO" "=== 网络监控检测开始 ==="
-    log "INFO" "WiFi 接口: $wifi_interface"
+    log "INFO" "status.monitor_start"
+    log "INFO" "status.wifi_interface" "$wifi_interface"
 
     # Get current WiFi network
     local current_wifi
     current_wifi=$(get_current_wifi "$wifi_interface")
-    log "INFO" "当前 WiFi: ${current_wifi}"
+    log "INFO" "status.current_wifi" "${current_wifi}"
 
     # Show WiFi IP if available
     local wifi_ip
     if wifi_ip=$(check_wifi_connected "$wifi_interface"); then
-        log "INFO" "WiFi IP 地址: $wifi_ip"
+        log "INFO" "status.wifi_ip" "$wifi_ip"
     fi
 
     # Check network connectivity
     if check_network; then
-        log "INFO" "网络连接正常。"
+        log "INFO" "network.normal"
     else
         # Double-check network connectivity to avoid false positives
         sleep 2
         if check_network; then
-            log "INFO" "网络连接正常（二次确认）。"
+            log "INFO" "network.normal"
         else
             # Network is down, attempt to reconnect
             reconnect_wifi "$wifi_interface" "$current_wifi"
         fi
     fi
 
-    log "INFO" "=== 网络监控检测完成 ==="
+    log "INFO" "status.monitor_end"
     echo "" >> "$LOG_FILE"
 }
 
