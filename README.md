@@ -15,6 +15,7 @@ Automatic network monitoring and WiFi reconnection tool for macOS. Monitors netw
 - **Native macOS Tools**: Uses built-in `networksetup` and `launchd` - no external dependencies
 - **CLI Status Tool**: Easy-to-use command `nm-status` for checking logs and status
 - **Comprehensive Logging**: All operations logged with timestamps
+- **Internationalization (i18n)**: Supports Chinese and English with automatic language detection
 
 ## Installation
 
@@ -59,6 +60,9 @@ PING_TIMEOUT=3                    # Ping timeout in seconds
 # Retry Configuration
 MAX_RETRY_COUNT=5                 # Maximum retry attempts
 RETRY_DELAYS=(0 30 60 120 300)   # Delays between retries
+
+# Language Configuration (i18n)
+LANGUAGE=""                        # Options: "zh" (Chinese), "en" (English), "" (auto-detect)
 ```
 
 ## Usage
@@ -208,10 +212,76 @@ network-monitor/
 ├── install.sh                 # Installation script
 ├── uninstall.sh               # Uninstallation script
 ├── status.sh                  # CLI status tool (nm-status)
-├── CLAUDE.md                  # AI assistant guide
-├── README.md                  # This file (English)
-└── README.CN.md               # Chinese documentation
+├── i18n/                      # Internationalization
+│   ├── i18n.sh               # Core i18n engine
+│   ├── locales/
+│   │   ├── en.sh            # English translations
+│   │   └── zh.sh            # Chinese translations
+│   └── test-i18n.sh         # i18n unit tests
+├── verify-i18n.sh            # Comprehensive i18n verification
+├── CLAUDE.md                 # AI assistant guide
+├── README.md                 # This file (English)
+└── README.CN.md              # Chinese documentation
 ```
+
+## Internationalization (i18n)
+
+Network Monitor supports multiple languages with automatic detection:
+
+### Supported Languages
+
+- **English (en)** - Full English support
+- **简体中文 (zh)** - Simplified Chinese support
+
+### Configuration
+
+Set your preferred language in `config.sh`:
+
+```bash
+# Auto-detect from system language (recommended)
+LANGUAGE=""
+
+# Force English
+LANGUAGE="en"
+
+# 强制中文
+LANGUAGE="zh"
+```
+
+### Language Detection
+
+When `LANGUAGE=""` (default), the system automatically detects your language:
+
+1. Checks `LC_ALL` environment variable
+2. Falls back to `LANG` environment variable
+3. Defaults to Chinese if no match found
+
+### Testing i18n
+
+```bash
+# Verify i18n installation
+./verify-i18n.sh
+
+# Test Chinese output
+LANGUAGE="zh" nm-status help
+
+# Test English output
+LANGUAGE="en" nm-status help
+
+# Test with system locale
+LANG=en_US.UTF-8 nm-status wifi
+```
+
+### Adding New Languages
+
+To add support for a new language:
+
+1. Create a new language file: `i18n/locales/xx.sh`
+2. Copy the structure from `en.sh`
+3. Translate all messages in the `translate()` function
+4. Test with: `LANGUAGE="xx" ./status.sh help`
+
+See `i18n/README.md` for detailed translation guidelines.
 
 ## License
 
